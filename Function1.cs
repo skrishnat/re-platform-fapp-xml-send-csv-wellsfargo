@@ -25,26 +25,47 @@ namespace re_platform_fapp_xml_send_csv_wellsfargo
         {
             log.LogInformation("C# HTTP trigger function processed a request.");
 
-            string name = req.Query["name"];
+            string tableTag = req.Headers["Tag"].ToString();
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             var xmlDoc = new XmlDocument();
             XmlDocument tmfDoc = new XmlDocument();
             xmlDoc.LoadXml(requestBody);
-            var start = xmlDoc.InnerXml.IndexOf("<EtTableData>") + 13;
-            var end = xmlDoc.InnerXml.IndexOf("</EtTableData>") - start;
-            var ded = xmlDoc.InnerXml.Substring(start, end);
-            tmfDoc.LoadXml("<root>\r\n" +
-                     ded +
-              "</root>\r\n");
+            XmlNode wellsXml = xmlDoc.GetElementsByTagName(""+tableTag+"").Item(0);
 
+            if(wellsXml.ChildNodes.Count<1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = new StringContent("NO Data from SAP")
+                };
+
+            }
+            /* var start = xmlDoc.InnerXml.IndexOf("<"+tableTag+">") + 10;
+             var end = xmlDoc.InnerXml.IndexOf("</" + tableTag + ">") - start;
+             var ded = xmlDoc.InnerXml.Substring(start, end)*/;
+            tmfDoc.LoadXml("<root>\r\n" +
+                     wellsXml.InnerXml +
+              "</root>\r\n");
+            var arpf = string.Empty;
             string csvResponse = ConvertToCSV(tmfDoc);
-            string restResponse = await PostCsvWellsfargo(csvResponse);
+            if(tableTag== "EtTableData")
+            {
+                arpf = "GECDF845iFFCSV";
+
+            }
+            else
+            {
+
+                arpf = "GECDF810iFFCSV";
+            }
+            string restResponse = await PostCsvWellsfargo(csvResponse,arpf);
+            
             if (restResponse == string.Empty)
             {
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("Data Sent to GXS")
+                    Content = new StringContent(csvResponse)
                 };
 
             }
@@ -55,21 +76,21 @@ namespace re_platform_fapp_xml_send_csv_wellsfargo
                     Content = new StringContent("error occured")
                 };
             }
-        }   
-        private static async Task<string> PostCsvWellsfargo(String requestBody)
+        }
+        private static async Task<string> PostCsvWellsfargo(String requestBody,String arpf)
         {
             var client = new RestClient("https://beta-smg.tradinggrid.gxs.com/invoke/gxs.https/receive");
             client.Timeout = -1;
             var request = new RestRequest(Method.POST);
             request.AddHeader("Content-type", "application/HTTPstream");
             request.AddHeader("actionrequest", "upload");
-            request.AddHeader("aprf", "*BIN");
+            request.AddHeader("aprf",arpf);
             request.AddHeader("password", "^}~~ER~\\vbY_7:K");
             request.AddHeader("receiverid", "GECDFAIIN");
             request.AddHeader("userid", "royalhttps");
-            request.AddParameter("application/HTTPstream", requestBody, ParameterType.RequestBody);
+          request.AddParameter("application/HTTPstream", requestBody.Replace(".0",".00"), ParameterType.RequestBody);
             var restResponse = await client.ExecuteAsync(request);
-            Console.WriteLine(restResponse.Content);
+           // Console.WriteLine(restResponse.Content);
             return restResponse.Content;
         }
 
@@ -94,34 +115,26 @@ namespace re_platform_fapp_xml_send_csv_wellsfargo
                     int index = 1;
 
                     //add column names
-                    foreach (DataColumn item in dr1.Table.Columns)
-                    {
-                        content.Append(String.Format("\"{0}\"", item.ColumnName));
-                        if (index < intColumnCount)
-                            content.Append(",");
-                        else
-                            content.Append("\r\n");
-                        index++;
-                    }
-
-                    //add column data
-                    foreach (DataRow currentRow in table.Rows)
-                    {
-                        string strRow = string.Empty;
-                        for (int y = 0; y <= intColumnCount - 1; y++)
+                                           //add column data
+                        foreach (DataRow currentRow in table.Rows)
                         {
-                            strRow += "\"" + currentRow[y].ToString() + "\"";
+                            string strRow = string.Empty;
+                            for (int y = 0; y <= intColumnCount - 1; y++)
+                            {
+                                // "\""+ "\""
+                                strRow += currentRow[y].ToString();
 
-                            if (y < intColumnCount - 1 && y >= 0)
-                                strRow += ",";
+                                if (y < intColumnCount - 1 && y >= 0)
+                                    strRow += ",";
+                            }
+                            content.Append(strRow + "\r\n");
                         }
-                        content.Append(strRow + "\r\n");
                     }
-                }
 
-            }
+                }
 
             return content.ToString();
         }
+            
+        }
     }
-}
